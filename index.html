@@ -145,7 +145,7 @@
   </div>
   <div class="conv" id="fuelStartKg">= 0,0 kg</div>
   <div class="row">
-    <label>Ende</label>
+    <label>Landung</label>
     <input type="number" id="v_fuelEnd" value="0" min="0" step="1" inputmode="decimal">
     <span class="unit">Liter</span>
   </div>
@@ -167,12 +167,12 @@
     <div class="metric">
       <div class="k">Schwerpunkt</div>
       <div class="v" id="cgStart">–</div>
-      <div class="lim">743–878 mm</div>
+      <div class="lim">25–35 % MAC</div>
     </div>
   </div>
 
   <div class="state" id="stateEnd">
-    <h3><span class="pip end"></span>Ende</h3>
+    <h3><span class="pip end"></span>Landung</h3>
     <div class="verdict" id="vEnd">–</div>
     <div class="metric">
       <div class="k">Landemasse</div>
@@ -182,7 +182,7 @@
     <div class="metric">
       <div class="k">Schwerpunkt</div>
       <div class="v" id="cgEnd">–</div>
-      <div class="lim">743–878 mm</div>
+      <div class="lim">25–35 % MAC</div>
     </div>
   </div>
 </div>
@@ -191,7 +191,7 @@
   <h2>Envelope</h2>
   <div class="legend">
     <span><span class="sw" style="background:var(--start)"></span>Start</span>
-    <span><span class="sw" style="background:var(--end)"></span>Ende</span>
+    <span><span class="sw" style="background:var(--end)"></span>Landung</span>
   </div>
   <svg id="env" viewBox="0 0 320 300"></svg>
 </div>
@@ -224,6 +224,12 @@ const AC = {
 
   tankMax: 160,          // max. Tankkapazitaet [l]
 
+  // Fuer %-MAC-Anzeige:  %MAC = (CG - LEMAC) / MAC * 100
+  MAC:   1350,           // mittlere aerodyn. Fluegeltiefe [mm]
+  LEMAC: 405.5,          // Leading Edge of MAC ab Datum [mm]
+  pctFwd: 25,            // vordere Grenze [% MAC]
+  pctAft: 35,            // hintere Grenze [% MAC]
+
   // Envelope-Eckpunkte im Uhrzeigersinn (Rechteck; bei
   // massenabhaengigen Grenzen hier weitere Punkte ergaenzen)
   envelope: [
@@ -249,6 +255,9 @@ function baseMass(){
        + (+$('m_bagWing').value||0) + (+$('m_bagRear').value||0);
 }
 
+// CG in mm -> % MAC
+function toPctMAC(cg){ return (cg - AC.LEMAC) / AC.MAC * 100; }
+
 function loadState(fuelKg){
   const items = [
     {m: +$('m_empty').value||0,   a: AC.emptyArm},
@@ -261,9 +270,10 @@ function loadState(fuelKg){
   let m=0, mom=0;
   items.forEach(i=>{ m+=i.m; mom+=i.m*i.a; });
   const cg = m>0 ? mom/m : 0;
+  const pct = m>0 ? toPctMAC(cg) : 0;
   const massOK = m <= maxMass();
   const cgOK   = cg >= AC.cgFwd && cg <= AC.cgAft;
-  return {m, cg, massOK, cgOK, ok: massOK && cgOK};
+  return {m, cg, pct, massOK, cgOK, ok: massOK && cgOK};
 }
 
 function compute(){
@@ -289,7 +299,7 @@ function paint(st, boxId, vId, mId, cgId){
   $(vId).textContent = st.ok ? '✓ innerhalb' : '× außerhalb';
   $(mId).textContent = fmt(st.m)+' kg';
   $(mId).className = 'v' + (st.massOK?'':' bad');
-  $(cgId).textContent = fmt(st.cg,0)+' mm';
+  $(cgId).textContent = fmt(st.pct,1)+' % MAC';
   $(cgId).className = 'v' + (st.cgOK?'':' bad');
 }
 
@@ -314,12 +324,7 @@ function drawEnvelope(S, E){
     s+='<line class="grid-l" x1="'+pad.l+'" y1="'+y.toFixed(1)+'" x2="'+(W-pad.r)+'" y2="'+y.toFixed(1)+'"/>';
     s+='<text class="axis-lbl" x="'+(pad.l-6)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end">'+Math.round(mv)+'</text>';
   }
-  for(let i=0;i<=3;i++){
-    const cv=cgLo+(cgHi-cgLo)*i/3, x=X(cv);
-    s+='<text class="axis-lbl" x="'+x.toFixed(1)+'" y="'+(H-pad.b+18)+'" text-anchor="middle">'+Math.round(cv)+'</text>';
-  }
   s+='<text class="axis-lbl" x="'+pad.l+'" y="12">kg</text>';
-  s+='<text class="axis-lbl" x="'+(W-pad.r)+'" y="'+(H-8)+'" text-anchor="end">Schwerpunkt [mm]</text>';
 
   const poly=AC.envelope.map(p=>X(p.cg).toFixed(1)+','+Y(p.m).toFixed(1)).join(' ');
   s+='<polygon class="env-poly" points="'+poly+'"/>';
