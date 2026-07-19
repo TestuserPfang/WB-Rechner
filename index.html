@@ -77,6 +77,18 @@
 
   .warn{background:#3a2e12;border:1px solid var(--gold);color:#f0d89a;
     border-radius:8px;padding:10px 12px;font-size:.78rem;margin-bottom:14px}
+
+  .btn{width:100%;margin-top:14px;background:var(--gold);color:#241a00;
+    border:none;border-radius:10px;padding:13px;font-size:.95rem;font-weight:700;
+    font-family:var(--sans);cursor:pointer;letter-spacing:.3px}
+  .btn:active{filter:brightness(.9)}
+  .msg{font-family:var(--mono);font-size:.8rem;margin-top:10px;padding:10px 12px;
+    border-radius:8px;display:none;line-height:1.5}
+  .msg.show{display:block}
+  .msg.info{background:var(--ok-bg);border:1px solid var(--ok);color:var(--ok)}
+  .msg.hint{background:#3a2e12;border:1px solid var(--gold);color:#f0d89a}
+  .msg.err{background:var(--bad-bg);border:1px solid var(--bad);color:var(--bad)}
+
   footer{color:var(--muted);font-size:.72rem;text-align:center;margin-top:18px;line-height:1.7}
 </style>
 </head>
@@ -92,45 +104,55 @@
 
   <div class="row">
     <label>Leermasse</label>
-    <input type="number" id="m_empty" value="385" min="0" step="1" inputmode="decimal">
+    <input type="number" id="m_empty" value="0" min="0" step="1" inputmode="decimal">
     <span class="unit">kg</span>
   </div>
 
   <div class="row">
     <label>Pilot</label>
-    <input type="number" id="m_pilot" value="85" min="0" step="1" inputmode="decimal">
+    <input type="number" id="m_pilot" value="0" min="0" step="1" inputmode="decimal">
     <span class="unit">kg</span>
   </div>
   <div class="row">
     <label>Passagier</label>
-    <input type="number" id="m_pax" value="70" min="0" step="1" inputmode="decimal">
+    <input type="number" id="m_pax" value="0" min="0" step="1" inputmode="decimal">
     <span class="unit">kg</span>
   </div>
 
   <div class="row">
     <label>Baggage Wing Locker (L+R)</label>
-    <input type="number" id="m_bagWing" value="5" min="0" step="1" inputmode="decimal">
+    <input type="number" id="m_bagWing" value="0" min="0" step="1" inputmode="decimal">
     <span class="unit">kg</span>
   </div>
   <div class="row">
     <label>Baggage Behind Seat</label>
-    <input type="number" id="m_bagRear" value="8" min="0" step="1" inputmode="decimal">
+    <input type="number" id="m_bagRear" value="0" min="0" step="1" inputmode="decimal">
+    <span class="unit">kg</span>
+  </div>
+
+  <div class="sub">Maximalgewicht (optional)</div>
+  <div class="row">
+    <label>Max. Gewicht</label>
+    <input type="number" id="m_max" value="600" min="0" step="1" inputmode="decimal">
     <span class="unit">kg</span>
   </div>
 
   <div class="sub">Kraftstoff</div>
   <div class="row">
     <label>Start</label>
-    <input type="number" id="v_fuelStart" value="60" min="0" step="1" inputmode="decimal">
+    <input type="number" id="v_fuelStart" value="0" min="0" step="1" inputmode="decimal">
     <span class="unit">Liter</span>
   </div>
-  <div class="conv" id="fuelStartKg">= 43,2 kg</div>
+  <div class="conv" id="fuelStartKg">= 0,0 kg</div>
   <div class="row">
     <label>Ende</label>
-    <input type="number" id="v_fuelEnd" value="15" min="0" step="1" inputmode="decimal">
+    <input type="number" id="v_fuelEnd" value="0" min="0" step="1" inputmode="decimal">
     <span class="unit">Liter</span>
   </div>
-  <div class="conv" id="fuelEndKg">= 10,8 kg</div>
+  <div class="conv" id="fuelEndKg">= 0,0 kg</div>
+
+  <button id="btnMaxFuel" class="btn">Max. Treibstoff berechnen</button>
+  <div class="msg" id="fuelMsg"></div>
 </div>
 
 <div class="states">
@@ -140,7 +162,7 @@
     <div class="metric">
       <div class="k">Abflugmasse</div>
       <div class="v" id="massStart">–</div>
-      <div class="lim">max 600 kg</div>
+      <div class="lim">max <span class="maxlbl">600</span> kg</div>
     </div>
     <div class="metric">
       <div class="k">Schwerpunkt</div>
@@ -155,7 +177,7 @@
     <div class="metric">
       <div class="k">Landemasse</div>
       <div class="v" id="massEnd">–</div>
-      <div class="lim">max 600 kg</div>
+      <div class="lim">max <span class="maxlbl">600</span> kg</div>
     </div>
     <div class="metric">
       <div class="k">Schwerpunkt</div>
@@ -196,9 +218,11 @@ const AC = {
   },
 
   // Grenzen
-  maxMass: 600,          // MTOW [kg]
+  maxMass: 600,          // MTOW [kg] (Standard-Vorbelegung des Max-Feldes)
   cgFwd:   743,          // Forward Limit [mm]
   cgAft:   878,          // Rearward Limit [mm]
+
+  tankMax: 160,          // max. Tankkapazitaet [l]
 
   // Envelope-Eckpunkte im Uhrzeigersinn (Rechteck; bei
   // massenabhaengigen Grenzen hier weitere Punkte ergaenzen)
@@ -213,6 +237,18 @@ const AC = {
 const $ = id => document.getElementById(id);
 const fmt = (n,d=1) => n.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
 
+// Effektives Maximalgewicht: Wert aus dem Feld, sonst Standard aus AC.
+function maxMass(){
+  const v = +$('m_max').value;
+  return (v && v > 0) ? v : AC.maxMass;
+}
+
+// Summe aller nicht-Kraftstoff-Massen (Grundgewicht ohne Sprit)
+function baseMass(){
+  return (+$('m_empty').value||0) + (+$('m_pilot').value||0) + (+$('m_pax').value||0)
+       + (+$('m_bagWing').value||0) + (+$('m_bagRear').value||0);
+}
+
 function loadState(fuelKg){
   const items = [
     {m: +$('m_empty').value||0,   a: AC.emptyArm},
@@ -225,7 +261,7 @@ function loadState(fuelKg){
   let m=0, mom=0;
   items.forEach(i=>{ m+=i.m; mom+=i.m*i.a; });
   const cg = m>0 ? mom/m : 0;
-  const massOK = m <= AC.maxMass;
+  const massOK = m <= maxMass();
   const cgOK   = cg >= AC.cgFwd && cg <= AC.cgAft;
   return {m, cg, massOK, cgOK, ok: massOK && cgOK};
 }
@@ -235,6 +271,9 @@ function compute(){
   const fuelEndKg   = (+$('v_fuelEnd').value||0)   * AC.fuelDensity;
   $('fuelStartKg').textContent = '= '+fmt(fuelStartKg)+' kg';
   $('fuelEndKg').textContent   = '= '+fmt(fuelEndKg)+' kg';
+
+  // Limit-Anzeige an das (optionale) Max-Feld koppeln
+  document.querySelectorAll('.maxlbl').forEach(el=>el.textContent = fmt(maxMass(),0));
 
   const S = loadState(fuelStartKg);
   const E = loadState(fuelEndKg);
@@ -296,6 +335,78 @@ function pointMark(x,y,color,warn){
   m+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="6" fill="'+color+'" stroke="'+(warn?'#ff5d6c':'#fff')+'" stroke-width="2"/>';
   return m;
 }
+
+// ============================================================
+//  MAX. TREIBSTOFF BERECHNEN
+// ============================================================
+function showMsg(type, text){
+  const el = $('fuelMsg');
+  el.className = 'msg show ' + type;
+  el.textContent = text;
+}
+
+function calcMaxFuel(){
+  const mMax  = +$('m_max').value;
+  const pilot = +$('m_pilot').value||0;
+  const pax   = +$('m_pax').value||0;
+
+  // 1) Maximalgewicht muss gesetzt sein
+  if(!mMax || mMax <= 0){
+    showMsg('err', 'Bitte zuerst das maximale Gewicht eingeben.');
+    return;
+  }
+  // 2) Mindestens der Pilot muss eingegeben sein
+  if(pilot <= 0 && pax <= 0){
+    showMsg('err', 'Bitte zuerst die Personen eingeben (mindestens Pilot).');
+    return;
+  }
+  // 3) Leermasse plausibel?
+  if((+$('m_empty').value||0) <= 0){
+    showMsg('err', 'Bitte zuerst die Leermasse eingeben.');
+    return;
+  }
+
+  const base = baseMass();                 // alles ausser Sprit
+  const spareKg = mMax - base;             // freies Gewicht fuer Sprit
+
+  // 4) Kein Spielraum mehr
+  if(spareKg <= 0){
+    showMsg('err', 'Kein Treibstoff möglich – Grundgewicht ('
+      + fmt(base,0) + ' kg) liegt bereits am oder über dem Maximum ('
+      + fmt(mMax,0) + ' kg).');
+    return;
+  }
+
+  const litersByWeight = spareKg / AC.fuelDensity;   // Liter aus Gewicht
+  let liters = litersByWeight;
+  let limitedByTank = false;
+
+  // 5) Durch Tankgroesse begrenzen
+  if(liters > AC.tankMax){
+    liters = AC.tankMax;
+    limitedByTank = true;
+  }
+
+  liters = Math.floor(liters);   // sicher abrunden, nie aufrunden
+
+  // In das Startfeld uebernehmen und neu rechnen
+  $('v_fuelStart').value = liters;
+  compute();
+
+  if(limitedByTank){
+    showMsg('hint', 'Möglich: ' + fmt(liters,0) + ' l (= ' + fmt(liters*AC.fuelDensity)
+      + ' kg). Durch die Tankgröße auf ' + AC.tankMax
+      + ' l begrenzt – nach Gewicht wären ' + fmt(litersByWeight,0) + ' l möglich.');
+  } else {
+    showMsg('info', 'Möglich: ' + fmt(liters,0) + ' l (= ' + fmt(liters*AC.fuelDensity)
+      + ' kg) bis zum Maximalgewicht. In das Startfeld übernommen.');
+  }
+}
+
+$('btnMaxFuel').addEventListener('click', calcMaxFuel);
+// Meldung verschwindet, sobald Werte geaendert werden
+['m_max','m_pilot','m_pax','m_empty','m_bagWing','m_bagRear'].forEach(id=>
+  $(id).addEventListener('input', ()=>{ $('fuelMsg').className='msg'; }));
 
 document.querySelectorAll('input').forEach(el=>el.addEventListener('input', compute));
 compute();
